@@ -67,6 +67,7 @@ app.get("/messages", (request, response) => {
 app.get("/health", (request, response) => {
     response.status(200).send("Message server running");
 });
-app.listen(3000, () => {
-    console.log("Message server started");
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+    console.log(`Message server started on port ${port}`);
 });
