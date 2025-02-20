@@ -48,7 +48,7 @@ app.post("/message/:key/:version", (request, response) => {
   const currentVersion = messageVersions.get(key) ?? 0;
   const messageVersion = currentVersion + 1;
   if (version !== String(messageVersion)) {
-    response.status(400).json({ error: "Wrong version" });
+    response.status(409).json({ error: "Version conflict" });
     return;
   }
 
