@@ -48,8 +48,9 @@ app.post("/message/:key/:version", (request, response) => {
         response.status(409).json({ error: "Version conflict" });
         return;
     }
+    const messageId = JSON.stringify({ key: key, version: messageVersion });
     const messageBody = JSON.stringify((_b = request.body) !== null && _b !== void 0 ? _b : null);
-    const sseMessage = `event: ${key}\nid: ${key}/${messageVersion}\ndata: ${messageBody}\n\n`;
+    const sseMessage = `id: ${messageId}\ndata: ${messageBody}\n\n`;
     sseMessages.set(key, sseMessage);
     messageVersions.set(key, messageVersion);
     notifyReceivers(sseMessage, key);

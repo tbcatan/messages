@@ -52,8 +52,9 @@ app.post("/message/:key/:version", (request, response) => {
     return;
   }
 
+  const messageId = JSON.stringify({ key: key, version: messageVersion });
   const messageBody = JSON.stringify(request.body ?? null);
-  const sseMessage = `event: ${key}\nid: ${key}/${messageVersion}\ndata: ${messageBody}\n\n`;
+  const sseMessage = `id: ${messageId}\ndata: ${messageBody}\n\n`;
 
   sseMessages.set(key, sseMessage);
   messageVersions.set(key, messageVersion);
