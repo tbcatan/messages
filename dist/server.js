@@ -9,11 +9,12 @@ const zod_1 = require("zod");
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
-const sseMessages = new Map();
+const messageEvents = new Map();
+const messageSnapshots = new Map();
 const messageVersions = new Map();
 const receivers = new Set();
 function initializeReceiver(receive) {
-    sseMessages.forEach((message, key) => receive(message, key));
+    messageEvents.forEach((message, key) => receive(message, key));
 }
 function notifyReceivers(message, key) {
     receivers.forEach((receive) => {
@@ -48,12 +49,14 @@ app.post("/message/:key/:version", (request, response) => {
         response.status(409).json({ error: "Version conflict" });
         return;
     }
-    const messageId = JSON.stringify({ key: key, version: messageVersion });
-    const messageBody = JSON.stringify((_b = request.body) !== null && _b !== void 0 ? _b : null);
-    const sseMessage = `id: ${messageId}\ndata: ${messageBody}\n\n`;
-    sseMessages.set(key, sseMessage);
+    const messageId = { key: key, version: messageVersion };
+    const messageData = (_b = request.body) !== null && _b !== void 0 ? _b : null;
+    const messageEvent = `id: ${JSON.stringify(messageId)}\ndata: ${JSON.stringify(messageData)}\n\n`;
+    const messageSnapshot = JSON.stringify({ id: messageId, data: messageData });
+    messageEvents.set(key, messageEvent);
+    messageSnapshots.set(key, messageSnapshot);
     messageVersions.set(key, messageVersion);
-    notifyReceivers(sseMessage, key);
+    notifyReceivers(messageEvent, key);
     response.status(200).send();
 });
 const messageFilterSchema = zod_1.z.object({
@@ -87,6 +90,23 @@ app.get("/messages", (request, response) => {
         receivers.delete(receive);
         response.end();
     });
+});
+app.get("/messages/snapshot", (request, response) => {
+    var _a;
+    const messageFilterParseResult = messageFilterSchema.safeParse(request.query);
+    if (!messageFilterParseResult.success) {
+        response.status(400).json({ error: "Bad filters", cause: messageFilterParseResult.error });
+        return;
+    }
+    const messageFilters = messageFilterParseResult.data;
+    const matches = new Set(messageFilters.matches);
+    const startsWith = (_a = messageFilters["starts-with"]) !== null && _a !== void 0 ? _a : [];
+    const snapshots = (messageFilters.matches || messageFilters["starts-with"]
+        ? [...messageSnapshots].filter(([key, _]) => matches.has(key) || startsWith.some((sw) => key.startsWith(sw)))
+        : [...messageSnapshots]).map(([_, message]) => message);
+    const snapshot = `[${snapshots.join(",")}]`;
+    response.setHeader("Content-Type", "application/json");
+    response.status(200).send(snapshot);
 });
 app.get("/health", (request, response) => {
     response.status(200).send("Message server running");

@@ -6,14 +6,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const sseMessages = new Map<string, string>();
+const messageEvents = new Map<string, string>();
+const messageSnapshots = new Map<string, string>();
 const messageVersions = new Map<string, number>();
 
 type MessageReceiver = (message: string, key: string) => void;
 const receivers = new Set<MessageReceiver>();
 
 function initializeReceiver(receive: MessageReceiver) {
-  sseMessages.forEach((message, key) => receive(message, key));
+  messageEvents.forEach((message, key) => receive(message, key));
 }
 
 function notifyReceivers(message: string, key: string) {
@@ -52,14 +53,17 @@ app.post("/message/:key/:version", (request, response) => {
     return;
   }
 
-  const messageId = JSON.stringify({ key: key, version: messageVersion });
-  const messageBody = JSON.stringify(request.body ?? null);
-  const sseMessage = `id: ${messageId}\ndata: ${messageBody}\n\n`;
+  const messageId = { key: key, version: messageVersion };
+  const messageData = request.body ?? null;
 
-  sseMessages.set(key, sseMessage);
+  const messageEvent = `id: ${JSON.stringify(messageId)}\ndata: ${JSON.stringify(messageData)}\n\n`;
+  const messageSnapshot = JSON.stringify({ id: messageId, data: messageData });
+
+  messageEvents.set(key, messageEvent);
+  messageSnapshots.set(key, messageSnapshot);
   messageVersions.set(key, messageVersion);
 
-  notifyReceivers(sseMessage, key);
+  notifyReceivers(messageEvent, key);
 
   response.status(200).send();
 });
@@ -99,6 +103,28 @@ app.get("/messages", (request, response) => {
     receivers.delete(receive);
     response.end();
   });
+});
+
+app.get("/messages/snapshot", (request, response) => {
+  const messageFilterParseResult = messageFilterSchema.safeParse(request.query);
+  if (!messageFilterParseResult.success) {
+    response.status(400).json({ error: "Bad filters", cause: messageFilterParseResult.error });
+    return;
+  }
+  const messageFilters = messageFilterParseResult.data;
+
+  const matches = new Set(messageFilters.matches);
+  const startsWith = messageFilters["starts-with"] ?? [];
+
+  const snapshots = (
+    messageFilters.matches || messageFilters["starts-with"]
+      ? [...messageSnapshots].filter(([key, _]) => matches.has(key) || startsWith.some((sw) => key.startsWith(sw)))
+      : [...messageSnapshots]
+  ).map(([_, message]) => message);
+  const snapshot = `[${snapshots.join(",")}]`;
+
+  response.setHeader("Content-Type", "application/json");
+  response.status(200).send(snapshot);
 });
 
 app.get("/health", (request, response) => {
