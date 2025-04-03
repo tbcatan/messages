@@ -111,7 +111,19 @@ app.get("/messages/snapshot", (request, response) => {
 app.get("/health", (request, response) => {
     response.status(200).send("Message server running");
 });
+const sleep = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
 const port = process.env.PORT || 3000;
+const address = process.env.ADDRESS;
+const pingIntervalSeconds = process.env.PING_INTERVAL_SECONDS;
 app.listen(port, () => {
     console.log(`Message server started on port ${port}`);
+    const pingIntervalMs = pingIntervalSeconds ? Number(pingIntervalSeconds) * 1000 : undefined;
+    if (address && pingIntervalMs) {
+        const ping = () => sleep(pingIntervalMs)
+            .then(() => fetch(`${address}/health`))
+            .then((response) => console.log("Pinged server", response))
+            .catch((error) => console.error("Pinged server", error))
+            .then(ping);
+        ping();
+    }
 });
