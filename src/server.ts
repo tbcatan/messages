@@ -6,9 +6,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+let serverLastAccessed = performance.now();
+
 const messageEvents = new Map<string, string>();
 const messageSnapshots = new Map<string, string>();
 const messageVersions = new Map<string, number>();
+
+function clearServerState() {
+  messageEvents.clear();
+  messageSnapshots.clear();
+  messageVersions.clear();
+}
 
 type MessageReceiver = (message: string, key: string) => void;
 const receivers = new Set<MessageReceiver>();
@@ -30,6 +38,8 @@ function notifyReceivers(message: string, key: string) {
 const messageKeyRegex = /^(\w|-|\.)+$/;
 
 app.post("/message/:key/:version", (request, response) => {
+  serverLastAccessed = performance.now();
+
   const key = request.params.key;
   const version = request.params.version;
 
@@ -74,6 +84,8 @@ const messageFilterSchema = z.object({
 });
 
 app.get("/messages", (request, response) => {
+  serverLastAccessed = performance.now();
+
   const messageFilterParseResult = messageFilterSchema.safeParse(request.query);
   if (!messageFilterParseResult.success) {
     response.status(400).json({ error: "Bad filters", cause: messageFilterParseResult.error });
@@ -106,6 +118,8 @@ app.get("/messages", (request, response) => {
 });
 
 app.get("/messages/snapshot", (request, response) => {
+  serverLastAccessed = performance.now();
+
   const messageFilterParseResult = messageFilterSchema.safeParse(request.query);
   if (!messageFilterParseResult.success) {
     response.status(400).json({ error: "Bad filters", cause: messageFilterParseResult.error });
@@ -136,18 +150,36 @@ const sleep = (durationMs: number) => new Promise((resolve) => setTimeout(resolv
 const port = process.env.PORT || 3000;
 const address = process.env.ADDRESS;
 const pingIntervalSeconds = process.env.PING_INTERVAL_SECONDS;
+const pingIntervalMilliseconds = pingIntervalSeconds ? Number(pingIntervalSeconds) * 1000 : undefined;
+const resetIntervalSeconds = process.env.RESET_INTERVAL_SECONDS;
+const resetIntervalMilliseconds = resetIntervalSeconds ? Number(resetIntervalSeconds) * 1000 : undefined;
 
 app.listen(port, () => {
   console.log(`Message server started on port ${port}`);
 
-  const pingIntervalMs = pingIntervalSeconds ? Number(pingIntervalSeconds) * 1000 : undefined;
-  if (address && pingIntervalMs) {
+  if (address && pingIntervalMilliseconds) {
     const ping: () => void = () =>
-      sleep(pingIntervalMs)
+      sleep(pingIntervalMilliseconds)
         .then(() => fetch(`${address}/health`))
-        .then((response) => console.log("Pinged server", response))
-        .catch((error) => console.error("Pinged server", error))
+        .then((response) => console.log("Pinged message server", response))
+        .catch((error) => console.error("Pinged message server", error))
         .then(ping);
     ping();
+  }
+
+  if (resetIntervalMilliseconds) {
+    serverLastAccessed = performance.now();
+    const checkIntervalMilliseconds = pingIntervalMilliseconds || resetIntervalMilliseconds;
+    const reset: () => void = () =>
+      sleep(checkIntervalMilliseconds)
+        .then(() => {
+          if (performance.now() - serverLastAccessed > resetIntervalMilliseconds) {
+            clearServerState();
+          }
+        })
+        .then(() => console.log("Message server reset"))
+        .catch((error) => console.error("Error resetting message server", error))
+        .then(reset);
+    reset();
   }
 });
